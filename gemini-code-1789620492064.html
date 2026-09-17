@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MakePlay / Base64 to SB3 Converter</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #fcf6ea; color: #333; padding: 20px; display: flex; flex-direction: column; gap: 16px; height: 100vh; }
+    .card { background: #fffcf4; border: 1px solid #e2d7c3; border-radius: 8px; padding: 20px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); flex: 1; }
+    h2 { font-size: 18px; color: #2c3e50; }
+    label { font-size: 13px; font-weight: bold; color: #555; }
+    textarea { width: 100%; height: 130px; padding: 10px; font-family: monospace; font-size: 13px; border: 1px solid #ccc; border-radius: 6px; resize: vertical; }
+    .btn { background: #3b82f6; color: white; border: none; font-weight: bold; font-size: 14px; padding: 12px 20px; border-radius: 6px; cursor: pointer; align-self: flex-start; }
+    .btn:hover { background: #2563eb; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    pre { background: #1e1e24; color: #d4d4d4; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 12px; overflow: auto; height: 150px; }
+    .error { color: #dc2626; font-size: 13px; font-weight: bold; }
+    .success { color: #166534; font-size: 13px; font-weight: bold; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+
+  <div class="card">
+    <h2>🎮 Base64 (ZIP) ➔ .sb3 変換ツール</h2>
+    
+    <div class="form-group">
+      <label>1. Base64データ文字列 (data:application/zip;base64,... または文字列)</label>
+      <textarea id="base64Input" placeholder="data:application/zip;base64,UEsDBBQAAAgAAAAAAAAB..."></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>出力ファイル名</label>
+      <input type="text" id="fileName" value="project.sb3" style="padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; width: 250px;">
+    </div>
+
+    <button class="btn" onclick="convertBase64ToSb3()">🚀 デコードして .sb3 をダウンロード</button>
+    <div id="msg"></div>
+
+    <div class="form-group" style="flex: 1;">
+      <label>抽出された project.json (確認用)</label>
+      <pre id="jsonOutput">ここに抽出されたJSONが表示されます...</pre>
+    </div>
+  </div>
+
+  <script>
+    async function convertBase64ToSb3() {
+      let input = document.getElementById('base64Input').value.trim();
+      let fileName = document.getElementById('fileName').value.trim() || 'project.sb3';
+      const msgEl = document.getElementById('msg');
+      const jsonOutputEl = document.getElementById('jsonOutput');
+      
+      msgEl.textContent = "";
+      jsonOutputEl.textContent = "";
+
+      if (!input) {
+        msgEl.className = "error";
+        msgEl.textContent = "Base64データを入力してください。";
+        return;
+      }
+
+      try {
+        // data:application/zip;base64, があれば削る
+        if (input.includes("base64,")) {
+          input = input.split("base64,")[1];
+        }
+
+        // JSZipでBase64のZIPを展開
+        const zip = new JSZip();
+        const zipContent = await zip.loadAsync(input, { base64: true });
+
+        if (!zipContent.files["project.json"]) {
+          throw new Error("ZIPファイルの中に project.json が見つかりませんでした。");
+        }
+
+        // project.jsonの中身を取り出す
+        const jsonString = await zipContent.files["project.json"].async("string");
+        
+        // 念のためJSONとして正しいかチェック
+        JSON.parse(jsonString);
+        jsonOutputEl.textContent = jsonString;
+
+        // 再びキレイなsb3（ZIP）として固めてダウンロードさせる
+        const newZip = new JSZip();
+        newZip.file("project.json", jsonString);
+
+        // ZIPに含まれていた他のファイル（画像などのアセット）があればそのまま引き継ぐ
+        for (let filename in zipContent.files) {
+          if (filename !== "project.json" && !zipContent.files[filename].dir) {
+            const fileData = await zipContent.files[filename].async("uint8array");
+            newZip.file(filename, fileData);
+          }
+        }
+
+        const blob = await newZip.generateAsync({
+          type: "blob",
+          mimeType: "application/x-scratch3"
+        });
+
+        if (!fileName.endsWith('.sb3')) {
+          fileName += '.sb3';
+        }
+
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+
+        setTimeout(() => {
+          document.body.removeChild(link);
+          URL.revokeObjectURL(link.href);
+        }, 100);
+
+        msgEl.className = "success";
+        msgEl.textContent = "✅ デコードと .sb3 ファイルの生成が完了しました！";
+
+      } catch (err) {
+        console.error(err);
+        msgEl.className = "error";
+        msgEl.textContent = `エラー: ${err.message}`;
+      }
+    }
+  </script>
+</body>
+</html>
